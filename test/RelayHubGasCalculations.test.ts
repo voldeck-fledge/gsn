@@ -203,6 +203,54 @@ contract('RelayHub gas calculations', function ([_, relayOwner, relayWorker, rel
       )
     })
 
+    it.only('should empty paymaster', async () => {
+      await relayHub.depositFor(paymaster.address, {
+        value: ether('1'),
+        from: other
+      })
+      const gasPrice = 100e9
+      const externalGasLimit = 12e6
+      const actualGasLimit = 2e6
+      const encodedFunction = recipient.contract.methods.emitMessage(message).encodeABI()
+      const relayRequest = {
+        request: {
+          to: recipient.address,
+          data: encodedFunction,
+          from: senderAddress,
+          nonce: senderNonce.toString(),
+          value: '0',
+          gas: gasLimit.toString(),
+          validUntil: '0'
+        },
+        relayData: {
+          baseRelayFee: baseFee.toString(),
+          pctRelayFee: fee.toString(),
+          gasPrice: gasPrice.toString(),
+          relayWorker,
+          forwarder,
+          paymaster: paymaster.address,
+          paymasterData,
+          clientId
+        }
+
+      }
+      const dataToSign = new TypedRequestData(
+        chainId,
+        forwarder,
+        relayRequest
+      )
+      signature = await getEip712Signature(
+        web3,
+        dataToSign
+      )
+      const tx = await relayHub.relayCall(1e6, relayRequest, signature, '0x', externalGasLimit, {
+        from: relayWorker,
+        gas: actualGasLimit.toString(),
+        gasPrice
+      })
+      console.log('charge is', tx.logs[1].args.charge.toString())
+    })
+
     it('should revert an attempt to use more than allowed gas for preRelayedCall', async function () {
       // TODO: extract preparation to 'before' block
       const misbehavingPaymaster = await TestPaymasterConfigurableMisbehavior.new()
@@ -430,6 +478,7 @@ contract('RelayHub gas calculations', function ([_, relayOwner, relayWorker, rel
     after('validate max gas cost per byte in relay hub', async function () {
       // console.log('costs per byte', costsPerByte)
       const maxCostPerByte = Math.max(...costsPerByte)
+      console.log(`estimated max data cost per byte:${maxCostPerByte} hub data cost per byte: ${hubDataGasCostPerByte}`)
       assert.closeTo(hubDataGasCostPerByte, maxCostPerByte, 5)
     })
   })
